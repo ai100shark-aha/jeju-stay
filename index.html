@@ -1,0 +1,824 @@
+<!DOCTYPE html>
+<!--
+  ============================================================
+  제주 한결네 - 1년 살이 게스트 예약 사이트 (구글 시트 연동판)
+  ------------------------------------------------------------
+  · HTML / CSS / JavaScript 가 한 파일 안에 모두 들어 있습니다.
+  · 데이터는 Google Apps Script 를 통해 Google Sheets 에 저장됩니다.
+  · 새 예약이 들어오면 카카오톡 "나에게 보내기" 알림이 발송됩니다.
+  · API_URL 을 비워두면 자동으로 localStorage 모드로 동작합니다.
+    (서버 설정 전에 미리 화면을 확인하거나 수업 시연용으로 사용)
+  ============================================================
+  설정 방법은 동봉된 "설정-가이드.md" 파일을 참고하세요.
+  ============================================================
+-->
+<html lang="ko">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>제주 한결네 · 한 달 살이 친구 초대</title>
+
+  <style>
+    /* CSS 변수: 색상이나 값을 한 곳에서 관리 */
+    :root {
+      --jeju-sea:    #2a8fbd;
+      --jeju-sky:    #cfe9f3;
+      --jeju-tangerine: #ff8c42;
+      --jeju-stone:  #4a4a4a;
+      --bg:          #fdfaf3;
+      --card:        #ffffff;
+      --text:        #2c2c2c;
+      --muted:       #777;
+      --line:        #e5e0d3;
+      --green:       #3fa66c;
+      --red:         #d9534f;
+      --yellow:      #f0ad4e;
+      --shadow:      0 4px 20px rgba(0,0,0,0.08);
+      --radius:      14px;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: 'Pretendard', 'Apple SD Gothic Neo', 'Malgun Gothic', sans-serif;
+      background: var(--bg); color: var(--text); line-height: 1.6;
+    }
+
+    /* 상단 네비게이션 */
+    nav {
+      position: sticky; top: 0; z-index: 100;
+      background: rgba(255,255,255,0.95);
+      backdrop-filter: blur(8px);
+      border-bottom: 1px solid var(--line);
+      padding: 14px 24px;
+      display: flex; justify-content: space-between; align-items: center;
+    }
+    nav .logo { font-size: 20px; font-weight: 700; color: var(--jeju-sea); }
+    nav .logo span { color: var(--jeju-tangerine); }
+    nav ul { list-style: none; display: flex; gap: 24px; }
+    nav ul a { color: var(--text); text-decoration: none; font-weight: 500; }
+    nav ul a:hover { color: var(--jeju-sea); }
+    .admin-btn {
+      background: var(--jeju-stone); color: white; border: none;
+      padding: 8px 16px; border-radius: 8px; cursor: pointer; font-size: 14px;
+    }
+
+    /* 모드 표시 배너 */
+    .mode-banner {
+      padding: 8px 24px; font-size: 13px; text-align: center;
+    }
+    .mode-banner.local { background: #fff3cd; color: #856404; }
+    .mode-banner.api { background: #d4edda; color: #1e6d3a; }
+
+    /* HERO */
+    .hero {
+      position: relative; height: 480px; overflow: hidden;
+      display: flex; align-items: center; justify-content: center;
+      text-align: center; color: white;
+    }
+    .hero svg.bg { position: absolute; inset: 0; width: 100%; height: 100%; }
+    .hero .content { position: relative; z-index: 2; padding: 0 20px; }
+    .hero h1 { font-size: 48px; margin-bottom: 14px; text-shadow: 0 2px 12px rgba(0,0,0,0.3); }
+    .hero p { font-size: 18px; max-width: 600px; margin: 0 auto; text-shadow: 0 1px 6px rgba(0,0,0,0.4); }
+    .hero .cta {
+      display: inline-block; margin-top: 24px;
+      background: var(--jeju-tangerine); color: white;
+      padding: 12px 28px; border-radius: 30px; text-decoration: none; font-weight: 600;
+    }
+
+    /* 공통 섹션 */
+    section { max-width: 1100px; margin: 0 auto; padding: 64px 24px; }
+    section h2 { font-size: 32px; margin-bottom: 8px; color: var(--jeju-stone); }
+    section .subtitle { color: var(--muted); margin-bottom: 32px; }
+
+    /* 숙소 정보 */
+    .info-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+      gap: 16px;
+    }
+    .info-card {
+      background: var(--card); padding: 24px; border-radius: var(--radius);
+      box-shadow: var(--shadow); text-align: center;
+    }
+    .info-card .icon { font-size: 36px; margin-bottom: 8px; }
+    .info-card h3 { font-size: 16px; color: var(--jeju-sea); margin-bottom: 6px; }
+    .info-card p { font-size: 14px; color: var(--muted); }
+
+    /* 갤러리 */
+    .gallery {
+      display: grid;
+      grid-template-columns: 2fr 1fr 1fr;
+      grid-template-rows: 200px 200px;
+      gap: 12px;
+    }
+    .gallery .photo { border-radius: var(--radius); overflow: hidden; box-shadow: var(--shadow); }
+    .gallery .photo:first-child { grid-row: span 2; }
+    .gallery .photo svg { width: 100%; height: 100%; display: block; }
+
+    /* 예약 영역 */
+    .booking { display: grid; grid-template-columns: 1.2fr 1fr; gap: 32px; }
+    @media (max-width: 800px) {
+      .booking { grid-template-columns: 1fr; }
+      .gallery { grid-template-columns: 1fr 1fr; grid-template-rows: auto; }
+      .gallery .photo:first-child { grid-row: auto; grid-column: span 2; }
+      .hero h1 { font-size: 32px; }
+    }
+
+    .calendar { background: var(--card); border-radius: var(--radius); box-shadow: var(--shadow); padding: 24px; }
+    .cal-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; }
+    .cal-header button {
+      background: var(--jeju-sky); border: none;
+      width: 36px; height: 36px; border-radius: 50%;
+      font-size: 18px; cursor: pointer;
+    }
+    .cal-header button:hover { background: var(--jeju-sea); color: white; }
+    .cal-title { font-size: 18px; font-weight: 600; }
+    .cal-weekdays, .cal-days { display: grid; grid-template-columns: repeat(7, 1fr); gap: 4px; }
+    .cal-weekdays div { text-align: center; font-size: 12px; color: var(--muted); padding: 6px 0; font-weight: 600; }
+    .cal-day {
+      aspect-ratio: 1; display: flex; align-items: center; justify-content: center;
+      border-radius: 8px; cursor: pointer; font-size: 14px;
+      transition: all 0.15s; user-select: none; background: #fafafa;
+    }
+    .cal-day:hover:not(.disabled):not(.booked) { background: var(--jeju-sky); }
+    .cal-day.empty { background: transparent; cursor: default; }
+    .cal-day.disabled { color: #ccc; cursor: not-allowed; background: transparent; }
+    .cal-day.today { font-weight: 700; border: 2px solid var(--jeju-tangerine); }
+    .cal-day.selected { background: var(--jeju-sea) !important; color: white; font-weight: 600; }
+    .cal-day.in-range { background: var(--jeju-sky); }
+    .cal-day.pending { background: var(--yellow); color: white; }
+    .cal-day.booked { background: var(--red); color: white; cursor: not-allowed; }
+
+    .cal-legend { display: flex; gap: 12px; margin-top: 16px; font-size: 12px; flex-wrap: wrap; }
+    .cal-legend span { display: flex; align-items: center; gap: 4px; }
+    .cal-legend i { width: 14px; height: 14px; border-radius: 4px; display: inline-block; }
+
+    .booking-form { background: var(--card); border-radius: var(--radius); box-shadow: var(--shadow); padding: 24px; }
+    .booking-form h3 { margin-bottom: 16px; color: var(--jeju-stone); }
+    .form-row { margin-bottom: 14px; }
+    .form-row label { display: block; font-size: 13px; color: var(--muted); margin-bottom: 4px; font-weight: 500; }
+    .form-row input, .form-row textarea, .form-row select {
+      width: 100%; padding: 10px 12px;
+      border: 1px solid var(--line); border-radius: 8px;
+      font-size: 14px; font-family: inherit; background: #fafafa;
+    }
+    .form-row input:focus, .form-row textarea:focus { outline: none; border-color: var(--jeju-sea); background: white; }
+    .form-row textarea { resize: vertical; min-height: 80px; }
+    .selected-dates {
+      background: var(--jeju-sky); padding: 10px;
+      border-radius: 8px; font-size: 13px; margin-bottom: 14px;
+      color: var(--jeju-stone);
+    }
+    .submit-btn {
+      width: 100%; background: var(--jeju-tangerine); color: white;
+      border: none; padding: 14px; border-radius: 8px;
+      font-size: 16px; font-weight: 600; cursor: pointer;
+    }
+    .submit-btn:hover { background: #e57733; }
+    .submit-btn:disabled { background: #ccc; cursor: not-allowed; }
+
+    /* 관리자 모달 */
+    .modal {
+      display: none; position: fixed; inset: 0; z-index: 999;
+      background: rgba(0,0,0,0.5); justify-content: center; align-items: center; padding: 20px;
+    }
+    .modal.active { display: flex; }
+    .modal-content {
+      background: white; border-radius: var(--radius);
+      max-width: 760px; width: 100%; max-height: 85vh;
+      overflow-y: auto; padding: 28px; position: relative;
+    }
+    .modal-close {
+      position: absolute; top: 16px; right: 16px;
+      background: none; border: none; font-size: 24px; cursor: pointer; color: var(--muted);
+    }
+    .reservation-item {
+      border: 1px solid var(--line); border-radius: 10px;
+      padding: 16px; margin-bottom: 12px; display: grid; gap: 6px;
+    }
+    .reservation-item.pending  { border-left: 4px solid var(--yellow); }
+    .reservation-item.approved { border-left: 4px solid var(--green); }
+    .reservation-item.rejected { border-left: 4px solid var(--red); opacity: 0.7; }
+    .reservation-item .top { display: flex; justify-content: space-between; align-items: center; }
+    .reservation-item .name { font-weight: 600; font-size: 16px; }
+    .badge { font-size: 12px; padding: 4px 10px; border-radius: 20px; font-weight: 600; }
+    .badge.pending  { background: #fef3cd; color: #946800; }
+    .badge.approved { background: #d4edda; color: #1e6d3a; }
+    .badge.rejected { background: #f8d7da; color: #842029; }
+    .reservation-item .actions { display: flex; gap: 8px; margin-top: 8px; }
+    .btn-approve, .btn-reject, .btn-delete {
+      padding: 8px 14px; border: none; border-radius: 6px;
+      cursor: pointer; font-size: 13px; font-weight: 500;
+    }
+    .btn-approve { background: var(--green); color: white; }
+    .btn-reject  { background: var(--red);   color: white; }
+    .btn-delete  { background: #999;          color: white; }
+    .empty-state { text-align: center; color: var(--muted); padding: 40px 20px; }
+    .loading { text-align: center; color: var(--muted); padding: 24px; }
+
+    footer { background: var(--jeju-stone); color: white; text-align: center; padding: 24px; margin-top: 48px; }
+    footer p { font-size: 13px; opacity: 0.8; }
+
+    .toast {
+      position: fixed; bottom: 30px; left: 50%;
+      transform: translateX(-50%) translateY(100px);
+      background: var(--jeju-stone); color: white;
+      padding: 14px 24px; border-radius: 30px; box-shadow: var(--shadow);
+      z-index: 1000; transition: transform 0.3s; font-size: 14px;
+      max-width: 90vw; text-align: center;
+    }
+    .toast.show { transform: translateX(-50%) translateY(0); }
+    .toast.error { background: var(--red); }
+  </style>
+</head>
+
+<body>
+
+  <nav>
+    <div class="logo">제주 <span>한결</span>네</div>
+    <ul>
+      <li><a href="#about">숙소 소개</a></li>
+      <li><a href="#gallery">사진</a></li>
+      <li><a href="#booking">예약하기</a></li>
+    </ul>
+    <button class="admin-btn" onclick="openAdmin()">관리자 모드</button>
+  </nav>
+
+  <div class="mode-banner" id="modeBanner"></div>
+
+  <header class="hero">
+    <svg class="bg" viewBox="0 0 1200 480" preserveAspectRatio="xMidYMid slice">
+      <defs>
+        <linearGradient id="sky" x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0%" stop-color="#7ec5e0"/>
+          <stop offset="100%" stop-color="#cfe9f3"/>
+        </linearGradient>
+        <linearGradient id="sea" x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0%" stop-color="#2a8fbd"/>
+          <stop offset="100%" stop-color="#1a6a96"/>
+        </linearGradient>
+      </defs>
+      <rect width="1200" height="320" fill="url(#sky)"/>
+      <polygon points="350,320 600,80 850,320" fill="#5a8a5e" opacity="0.85"/>
+      <polygon points="500,320 600,150 700,320" fill="#3d6b41" opacity="0.7"/>
+      <ellipse cx="200" cy="100" rx="60" ry="20" fill="white" opacity="0.7"/>
+      <ellipse cx="240" cy="90" rx="40" ry="16" fill="white" opacity="0.8"/>
+      <ellipse cx="950" cy="130" rx="50" ry="18" fill="white" opacity="0.6"/>
+      <rect y="320" width="1200" height="160" fill="url(#sea)"/>
+      <path d="M0,340 Q150,330 300,340 T600,340 T900,340 T1200,340 V480 H0 Z" fill="#3aa0cf" opacity="0.5"/>
+      <circle cx="1080" cy="380" r="22" fill="#ff8c42"/>
+      <ellipse cx="1080" cy="365" rx="6" ry="3" fill="#3d6b41"/>
+    </svg>
+    <div class="content">
+      <h1>🌊 제주에서의 1년, 함께 머무는 며칠</h1>
+      <p>한결이가 1년 살이 중인 제주 시골집을 친구·지인분들에게 열어둡니다.<br/>편하게 와서 쉬다 가세요.</p>
+      <a href="#booking" class="cta">날짜 보기 ↓</a>
+    </div>
+  </header>
+
+  <section id="about">
+    <h2>숙소 소개</h2>
+    <p class="subtitle">바다까지 도보 5분, 작고 아늑한 단독주택입니다.</p>
+    <div class="info-grid">
+      <div class="info-card"><div class="icon">🛏️</div><h3>2인실 + 1인실</h3><p>최대 3명까지</p></div>
+      <div class="info-card"><div class="icon">🍳</div><h3>전체 주방</h3><p>요리도구·식기 완비</p></div>
+      <div class="info-card"><div class="icon">🚲</div><h3>자전거 2대</h3><p>해안도로 라이딩</p></div>
+      <div class="info-card"><div class="icon">🌅</div><h3>일출 명당</h3><p>마당에서 바로</p></div>
+    </div>
+  </section>
+
+  <section id="gallery">
+    <h2>이런 곳이에요</h2>
+    <p class="subtitle">실제 사진은 추후 본인 사진으로 교체하세요!</p>
+    <div class="gallery">
+      <div class="photo"><svg viewBox="0 0 400 400">
+        <rect width="400" height="400" fill="#cfe9f3"/>
+        <rect x="80" y="180" width="240" height="160" fill="#fdfaf3" stroke="#4a4a4a" stroke-width="2"/>
+        <polygon points="60,180 200,80 340,180" fill="#d9534f"/>
+        <rect x="180" y="240" width="40" height="100" fill="#5a3a1a"/>
+        <rect x="110" y="220" width="50" height="50" fill="#7ec5e0"/>
+        <rect x="240" y="220" width="50" height="50" fill="#7ec5e0"/>
+        <circle cx="80" cy="80" r="30" fill="#ffe066"/>
+        <text x="200" y="380" text-anchor="middle" fill="#4a4a4a" font-size="18">🏡 외관</text>
+      </svg></div>
+      <div class="photo"><svg viewBox="0 0 200 200">
+        <rect width="200" height="200" fill="#fdfaf3"/>
+        <rect x="30" y="80" width="140" height="80" fill="#a0c8a8"/>
+        <rect x="50" y="60" width="100" height="40" fill="#fff"/>
+        <text x="100" y="190" text-anchor="middle" fill="#4a4a4a" font-size="14">🛏️ 침실</text>
+      </svg></div>
+      <div class="photo"><svg viewBox="0 0 200 200">
+        <rect width="200" height="200" fill="#fef3cd"/>
+        <rect x="40" y="70" width="120" height="80" fill="#fff" stroke="#4a4a4a"/>
+        <circle cx="80" cy="110" r="12" fill="#4a4a4a"/>
+        <circle cx="120" cy="110" r="12" fill="#4a4a4a"/>
+        <text x="100" y="190" text-anchor="middle" fill="#4a4a4a" font-size="14">🍳 주방</text>
+      </svg></div>
+      <div class="photo"><svg viewBox="0 0 200 200">
+        <rect width="200" height="200" fill="#cfe9f3"/>
+        <rect y="120" width="200" height="80" fill="#2a8fbd"/>
+        <circle cx="160" cy="50" r="20" fill="#ffe066"/>
+        <text x="100" y="190" text-anchor="middle" fill="white" font-size="14">🌊 바다</text>
+      </svg></div>
+      <div class="photo"><svg viewBox="0 0 200 200">
+        <rect width="200" height="200" fill="#fff"/>
+        <circle cx="100" cy="100" r="60" fill="#ff8c42"/>
+        <text x="100" y="190" text-anchor="middle" fill="#4a4a4a" font-size="14">🍊 감귤</text>
+      </svg></div>
+    </div>
+  </section>
+
+  <section id="booking">
+    <h2>예약 신청하기</h2>
+    <p class="subtitle">달력에서 체크인/체크아웃 날짜를 선택한 뒤 폼을 작성해 주세요. 신청이 들어오면 한결의 카카오톡으로 알림이 갑니다.</p>
+
+    <div class="booking">
+      <div class="calendar">
+        <div class="cal-header">
+          <button onclick="changeMonth(-1)">‹</button>
+          <div class="cal-title" id="calTitle"></div>
+          <button onclick="changeMonth(1)">›</button>
+        </div>
+        <div class="cal-weekdays">
+          <div style="color:#d9534f">일</div><div>월</div><div>화</div>
+          <div>수</div><div>목</div><div>금</div>
+          <div style="color:#2a8fbd">토</div>
+        </div>
+        <div class="cal-days" id="calDays"></div>
+        <div class="cal-legend">
+          <span><i style="background:var(--jeju-sea)"></i>선택한 날짜</span>
+          <span><i style="background:var(--yellow)"></i>승인 대기</span>
+          <span><i style="background:var(--red)"></i>예약 완료</span>
+          <span><i style="background:#fafafa;border:1px solid var(--line)"></i>예약 가능</span>
+        </div>
+      </div>
+
+      <div class="booking-form">
+        <h3>📝 예약 신청서</h3>
+        <div class="selected-dates" id="selectedDates">
+          📅 달력에서 체크인 날짜를 먼저 클릭하세요
+        </div>
+        <div class="form-row">
+          <label>이름 *</label>
+          <input type="text" id="guestName" placeholder="홍길동" />
+        </div>
+        <div class="form-row">
+          <label>연락처 *</label>
+          <input type="tel" id="guestPhone" placeholder="010-1234-5678" />
+        </div>
+        <div class="form-row">
+          <label>이메일 (선택, 입력 시 자동 안내 메일 발송)</label>
+          <input type="email" id="guestEmail" placeholder="example@gmail.com" />
+        </div>
+        <div class="form-row">
+          <label>인원 *</label>
+          <select id="guestCount">
+            <option value="1">1명</option>
+            <option value="2" selected>2명</option>
+            <option value="3">3명</option>
+          </select>
+        </div>
+        <div class="form-row">
+          <label>한결에게 한마디 (선택)</label>
+          <textarea id="guestMessage" placeholder="안녕! 우리 OO이랑 같이 갈게~"></textarea>
+        </div>
+        <button class="submit-btn" id="submitBtn" onclick="submitReservation()">예약 신청하기</button>
+      </div>
+    </div>
+  </section>
+
+  <div class="modal" id="adminModal">
+    <div class="modal-content">
+      <button class="modal-close" onclick="closeAdmin()">×</button>
+      <h2>🔐 관리자 모드</h2>
+      <p class="subtitle" style="margin-top:8px">호스트(한결)만 사용하는 화면입니다.</p>
+
+      <div id="adminLogin">
+        <div class="form-row" style="margin-top:20px">
+          <label>비밀번호</label>
+          <input type="password" id="adminPw" placeholder="비밀번호 입력 후 Enter" />
+        </div>
+        <button class="submit-btn" onclick="checkPassword()">로그인</button>
+      </div>
+
+      <div id="adminPanel" style="display:none">
+        <div style="display:flex;gap:8px;margin:16px 0;flex-wrap:wrap">
+          <button class="btn-approve" onclick="filterReservations('all')">전체</button>
+          <button class="btn-approve" style="background:var(--yellow)" onclick="filterReservations('pending')">대기중</button>
+          <button class="btn-approve" onclick="filterReservations('approved')">승인됨</button>
+          <button class="btn-reject" onclick="filterReservations('rejected')">거절됨</button>
+          <button class="btn-delete" onclick="refreshAdminList()">🔄 새로고침</button>
+        </div>
+        <div id="reservationList"></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="toast" id="toast"></div>
+
+  <footer>
+    <p>🌊 제주 한결네 · 1년 살이 중 · 친구야 놀러와 🍊</p>
+    <p style="margin-top:4px">Powered by Google Sheets · 학생 수업용 데모</p>
+  </footer>
+
+
+  <script>
+    /* ===========================================================
+       0. 설정값
+           ※ 처음 사용하실 때는 아래 두 값만 본인 것으로 바꾸세요.
+       =========================================================== */
+    const CONFIG = {
+      // Apps Script 를 "웹 앱"으로 배포하면 받게 되는 URL
+      // (https://script.google.com/macros/s/AKfy.../exec 형태)
+      // 비워두면 자동으로 localStorage 모드로 동작합니다.
+      API_URL: 'https://script.google.com/macros/s/AKfycbzL4AGK1kRFhErzUdOt914lmv4kylL-Js8OiNVrD9Xo7R2AvXc6g3t63APNQvNID6qLPg/exec',
+
+      // 관리자 비밀번호 (Apps Script 의 ADMIN_TOKEN 과 같아야 함)
+      ADMIN_PASSWORD: 'tkdrl100AA!'
+    };
+
+    /* ===========================================================
+       1. 모드 결정
+           · API_URL 이 있으면 → "API 모드" (구글 시트 연동)
+           · 없으면 → "로컬 모드" (브라우저 안에서만 저장)
+       =========================================================== */
+    const useApi = !!CONFIG.API_URL;
+    const STORAGE_KEY = 'jeju_reservations';
+
+    // 모드 배너 표시
+    document.addEventListener('DOMContentLoaded', () => {
+      const banner = document.getElementById('modeBanner');
+      if (useApi) {
+        banner.className = 'mode-banner api';
+        banner.textContent = '✅ 구글 시트 연동 모드: 예약이 시트에 저장되고 카카오톡 알림이 발송됩니다.';
+      } else {
+        banner.className = 'mode-banner local';
+        banner.textContent = '⚠️ 로컬 모드: 데이터가 이 브라우저에만 저장됩니다. CONFIG.API_URL 을 설정하면 구글 시트와 연동됩니다.';
+      }
+    });
+
+    /* ===========================================================
+       2. API 호출 헬퍼
+           · POST 는 Content-Type: text/plain 으로 보내서
+             Apps Script 의 CORS 제약을 우회합니다.
+       =========================================================== */
+    async function callApi(action, data = {}) {
+      if (!useApi) throw new Error('API_URL 이 설정되지 않았습니다.');
+      const body = JSON.stringify(Object.assign({ action }, data));
+      const res = await fetch(CONFIG.API_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+        body
+      });
+      const json = await res.json();
+      if (!json.ok) throw new Error(json.error || '알 수 없는 오류');
+      return json;
+    }
+
+    /* GET 으로 공개 데이터(예약된 날짜 목록)만 가져옴 */
+    async function fetchPublicDates() {
+      if (!useApi) return loadLocal().map(r => ({
+        checkIn: r.checkIn, checkOut: r.checkOut, status: r.status
+      }));
+      const res = await fetch(CONFIG.API_URL, { method: 'GET' });
+      const json = await res.json();
+      if (!json.ok) throw new Error(json.error);
+      return json.dates;
+    }
+
+    /* ===========================================================
+       3. 로컬 저장소 (API_URL 이 없을 때만 사용)
+       =========================================================== */
+    function loadLocal() {
+      const raw = localStorage.getItem(STORAGE_KEY);
+      return raw ? JSON.parse(raw) : [];
+    }
+    function saveLocal(list) {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(list));
+    }
+
+    /* ===========================================================
+       4. 달력 상태
+       =========================================================== */
+    let viewYear  = new Date().getFullYear();
+    let viewMonth = new Date().getMonth();
+    let checkIn   = null;
+    let checkOut  = null;
+    let publicDates = [];   // 캘린더에 표시할 예약된 날짜 정보
+
+    function toDateStr(year, month, day) {
+      return `${year}-${String(month + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+    }
+    function parseDate(str) {
+      const [y, m, d] = str.split('-').map(Number);
+      return new Date(y, m - 1, d);
+    }
+    /* 두 날짜 사이의 "박" 에 해당하는 날들 (체크아웃 제외 — 호텔식)
+       · 4/29 → 4/30 의 경우 ['2026-04-29'] 한 개 (1박)
+       · 같은 날 다음 손님이 들어올 수 있는 모델 */
+    function datesBetween(start, end) {
+      const result = [];
+      const s = parseDate(start), e = parseDate(end);
+      const cur = new Date(s);
+      while (cur < e) {
+        result.push(toDateStr(cur.getFullYear(), cur.getMonth(), cur.getDate()));
+        cur.setDate(cur.getDate() + 1);
+      }
+      return result;
+    }
+
+    /* 공개 데이터를 다시 불러와서 달력 새로 그리기 */
+    async function refreshCalendar() {
+      try {
+        publicDates = await fetchPublicDates();
+      } catch (err) {
+        console.error('캘린더 데이터 로드 실패:', err);
+        showToast('예약 정보를 불러오지 못했어요: ' + err.message, true);
+      }
+      renderCalendar();
+    }
+
+    function renderCalendar() {
+      const monthNames = ['1월','2월','3월','4월','5월','6월','7월','8월','9월','10월','11월','12월'];
+      document.getElementById('calTitle').textContent = `${viewYear}년 ${monthNames[viewMonth]}`;
+
+      const firstDay = new Date(viewYear, viewMonth, 1).getDay();
+      const lastDate = new Date(viewYear, viewMonth + 1, 0).getDate();
+      const today    = new Date();
+      const todayStr = toDateStr(today.getFullYear(), today.getMonth(), today.getDate());
+
+      // 예약된 날짜 → 상태 매핑 (호텔식 — 체크아웃 날 제외)
+      const dateStatus = {};
+      publicDates.forEach(r => {
+        if (r.status === 'rejected') return;
+        datesBetween(r.checkIn, r.checkOut).forEach(d => {
+          if (r.status === 'approved' || !dateStatus[d]) dateStatus[d] = r.status;
+        });
+      });
+
+      const days = document.getElementById('calDays');
+      days.innerHTML = '';
+
+      for (let i = 0; i < firstDay; i++) {
+        const empty = document.createElement('div');
+        empty.className = 'cal-day empty';
+        days.appendChild(empty);
+      }
+
+      for (let d = 1; d <= lastDate; d++) {
+        const dateStr = toDateStr(viewYear, viewMonth, d);
+        const cell = document.createElement('div');
+        cell.className = 'cal-day';
+        cell.textContent = d;
+
+        if (dateStr < todayStr) {
+          cell.classList.add('disabled');
+        } else {
+          const st = dateStatus[dateStr];
+          if (st === 'approved') cell.classList.add('booked');
+          else if (st === 'pending') cell.classList.add('pending');
+          if (dateStr === todayStr) cell.classList.add('today');
+          if (dateStr === checkIn || dateStr === checkOut) cell.classList.add('selected');
+          else if (checkIn && checkOut && dateStr > checkIn && dateStr < checkOut) {
+            cell.classList.add('in-range');
+          }
+          cell.onclick = () => selectDate(dateStr);
+        }
+        days.appendChild(cell);
+      }
+    }
+
+    function selectDate(dateStr) {
+      if (!checkIn || (checkIn && checkOut)) {
+        checkIn = dateStr; checkOut = null;
+      } else if (checkIn && !checkOut) {
+        if (dateStr > checkIn) checkOut = dateStr;
+        else checkIn = dateStr;
+      }
+      updateSelectedDates();
+      renderCalendar();
+    }
+
+    function updateSelectedDates() {
+      const box = document.getElementById('selectedDates');
+      if (checkIn && checkOut) {
+        const nights = datesBetween(checkIn, checkOut).length;
+        box.innerHTML = `📅 <b>${checkIn}</b> → <b>${checkOut}</b> (${nights}박)`;
+      } else if (checkIn) {
+        box.innerHTML = `📅 체크인: <b>${checkIn}</b><br>이제 체크아웃 날짜를 클릭해 주세요.`;
+      } else {
+        box.innerHTML = '📅 달력에서 체크인 날짜를 먼저 클릭하세요';
+      }
+    }
+
+    function changeMonth(delta) {
+      viewMonth += delta;
+      if (viewMonth < 0)  { viewMonth = 11; viewYear--; }
+      if (viewMonth > 11) { viewMonth = 0;  viewYear++; }
+      renderCalendar();
+    }
+
+    /* ===========================================================
+       5. 예약 신청
+       =========================================================== */
+    async function submitReservation() {
+      const name    = document.getElementById('guestName').value.trim();
+      const phone   = document.getElementById('guestPhone').value.trim();
+      const email   = document.getElementById('guestEmail').value.trim();
+      const guests  = Number(document.getElementById('guestCount').value);
+      const message = document.getElementById('guestMessage').value.trim();
+
+      if (!checkIn || !checkOut) { showToast('체크인/체크아웃 날짜를 모두 선택해 주세요!', true); return; }
+      if (!name || !phone)       { showToast('이름과 연락처는 필수입니다.', true); return; }
+
+      const btn = document.getElementById('submitBtn');
+      btn.disabled = true; btn.textContent = '신청 중...';
+
+      try {
+        if (useApi) {
+          // 구글 시트로 전송 (이메일 포함)
+          await callApi('create', { name, phone, email, guests, message, checkIn, checkOut });
+        } else {
+          // 로컬 저장 모드 (호텔식 충돌 검사)
+          const list = loadLocal();
+          const newRange = datesBetween(checkIn, checkOut);
+          const conflict = list.some(r =>
+            r.status === 'approved' &&
+            datesBetween(r.checkIn, r.checkOut).some(d => newRange.includes(d))
+          );
+          if (conflict) throw new Error('이미 승인된 예약과 날짜가 겹쳐요.');
+          list.push({
+            id: String(Date.now()), name, phone, email, guests, message, checkIn, checkOut,
+            status: 'pending', requestedAt: new Date().toISOString(),
+            nights: datesBetween(checkIn, checkOut).length
+          });
+          saveLocal(list);
+        }
+
+        // 폼 초기화
+        checkIn = null; checkOut = null;
+        document.getElementById('guestName').value = '';
+        document.getElementById('guestPhone').value = '';
+        document.getElementById('guestEmail').value = '';
+        document.getElementById('guestMessage').value = '';
+        updateSelectedDates();
+        await refreshCalendar();
+        showToast('✅ 예약 신청 완료! 한결이 확인 후 연락드릴게요.');
+      } catch (err) {
+        showToast('신청 실패: ' + err.message, true);
+      } finally {
+        btn.disabled = false; btn.textContent = '예약 신청하기';
+      }
+    }
+
+    /* ===========================================================
+       6. 관리자 모드
+       =========================================================== */
+    function openAdmin() {
+      document.getElementById('adminModal').classList.add('active');
+    }
+    function closeAdmin() {
+      document.getElementById('adminModal').classList.remove('active');
+      document.getElementById('adminLogin').style.display = 'block';
+      document.getElementById('adminPanel').style.display = 'none';
+      document.getElementById('adminPw').value = '';
+    }
+
+    async function checkPassword() {
+      const pw = document.getElementById('adminPw').value;
+      if (pw !== CONFIG.ADMIN_PASSWORD) {
+        showToast('비밀번호가 틀렸어요.', true); return;
+      }
+      document.getElementById('adminLogin').style.display = 'none';
+      document.getElementById('adminPanel').style.display = 'block';
+      await refreshAdminList();
+    }
+
+    document.addEventListener('DOMContentLoaded', () => {
+      document.getElementById('adminPw').addEventListener('keydown', e => {
+        if (e.key === 'Enter') checkPassword();
+      });
+    });
+
+    let currentFilter = 'all';
+    let cachedList = [];
+
+    async function refreshAdminList() {
+      const target = document.getElementById('reservationList');
+      target.innerHTML = '<div class="loading">⏳ 불러오는 중...</div>';
+      try {
+        if (useApi) {
+          const json = await callApi('list', { token: CONFIG.ADMIN_PASSWORD });
+          cachedList = json.list;
+        } else {
+          cachedList = loadLocal();
+        }
+        renderAdminList();
+      } catch (err) {
+        target.innerHTML = `<div class="empty-state">❌ 불러오기 실패: ${escapeHtml(err.message)}</div>`;
+      }
+    }
+
+    function filterReservations(type) {
+      currentFilter = type;
+      renderAdminList();
+    }
+
+    function renderAdminList() {
+      const target = document.getElementById('reservationList');
+      const filtered = (currentFilter === 'all')
+        ? cachedList.slice()
+        : cachedList.filter(r => r.status === currentFilter);
+
+      if (filtered.length === 0) {
+        target.innerHTML = '<div class="empty-state">예약 신청이 없습니다.</div>';
+        return;
+      }
+      filtered.sort((a, b) => String(b.requestedAt).localeCompare(String(a.requestedAt)));
+
+      target.innerHTML = filtered.map(r => {
+        const statusKr = { pending:'대기중', approved:'승인됨', rejected:'거절됨' }[r.status] || r.status;
+        const requestedAt = new Date(r.requestedAt).toLocaleString('ko-KR');
+        return `
+          <div class="reservation-item ${r.status}">
+            <div class="top">
+              <div class="name">${escapeHtml(r.name)} (${r.guests}명)</div>
+              <span class="badge ${r.status}">${statusKr}</span>
+            </div>
+            <div>📅 ${r.checkIn} → ${r.checkOut} (${r.nights || ''}박)</div>
+            <div>📞 ${escapeHtml(String(r.phone))}</div>
+            ${r.email ? `<div>✉️ ${escapeHtml(r.email)}</div>` : ''}
+            ${r.message ? `<div>💬 ${escapeHtml(r.message)}</div>` : ''}
+            <div style="font-size:12px;color:var(--muted)">신청 시각: ${requestedAt}</div>
+            <div class="actions">
+              ${r.status === 'pending' ? `
+                <button class="btn-approve" onclick="updateStatus('${r.id}','approved')">✓ 승인</button>
+                <button class="btn-reject"  onclick="updateStatus('${r.id}','rejected')">✗ 거절</button>
+              ` : ''}
+              <button class="btn-delete" onclick="deleteReservation('${r.id}')">🗑 삭제</button>
+            </div>
+          </div>
+        `;
+      }).join('');
+    }
+
+    async function updateStatus(id, status) {
+      try {
+        if (useApi) {
+          await callApi('update', { id, status, token: CONFIG.ADMIN_PASSWORD });
+        } else {
+          const list = loadLocal();
+          const t = list.find(r => String(r.id) === String(id));
+          if (t) t.status = status;
+          saveLocal(list);
+        }
+        await refreshAdminList();
+        await refreshCalendar();
+        showToast(status === 'approved' ? '예약을 승인했습니다.' : '예약을 거절했습니다.');
+      } catch (err) {
+        showToast('처리 실패: ' + err.message, true);
+      }
+    }
+
+    async function deleteReservation(id) {
+      if (!confirm('정말 삭제할까요?')) return;
+      try {
+        if (useApi) {
+          await callApi('delete', { id, token: CONFIG.ADMIN_PASSWORD });
+        } else {
+          saveLocal(loadLocal().filter(r => String(r.id) !== String(id)));
+        }
+        await refreshAdminList();
+        await refreshCalendar();
+        showToast('삭제되었습니다.');
+      } catch (err) {
+        showToast('처리 실패: ' + err.message, true);
+      }
+    }
+
+    /* ===========================================================
+       7. 보조 함수
+       =========================================================== */
+    function escapeHtml(str) {
+      return String(str).replace(/[&<>"']/g, ch => ({
+        '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'
+      }[ch]));
+    }
+
+    let toastTimer;
+    function showToast(msg, isError) {
+      const t = document.getElementById('toast');
+      t.textContent = msg;
+      t.classList.toggle('error', !!isError);
+      t.classList.add('show');
+      clearTimeout(toastTimer);
+      toastTimer = setTimeout(() => t.classList.remove('show'), 3200);
+    }
+
+    /* ===========================================================
+       8. 초기 실행
+       =========================================================== */
+    updateSelectedDates();
+    refreshCalendar();
+  </script>
+</body>
+</html>
