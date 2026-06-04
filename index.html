@@ -768,6 +768,10 @@
                 <button class="btn-approve" onclick="updateStatus('${r.id}','approved')">✓ 승인</button>
                 <button class="btn-reject"  onclick="updateStatus('${r.id}','rejected')">✗ 거절</button>
               ` : ''}
+              ${r.manageUrl ? `
+                <button class="btn-delete" style="background:#5a8aa8"
+                        onclick="copyManageUrl('${escapeHtml(r.manageUrl)}')">📋 수정 URL</button>
+              ` : ''}
               <button class="btn-delete" onclick="deleteReservation('${r.id}')">🗑 삭제</button>
             </div>
           </div>
@@ -790,6 +794,17 @@
         showToast(status === 'approved' ? '예약을 승인했습니다.' : '예약을 거절했습니다.');
       } catch (err) {
         showToast('처리 실패: ' + err.message, true);
+      }
+    }
+
+    /* 손님 수정 URL 을 클립보드에 복사 — 손님이 메일 분실 시 한결이 카톡으로 전달 가능 */
+    async function copyManageUrl(url) {
+      try {
+        await navigator.clipboard.writeText(url);
+        showToast('📋 수정 URL 이 복사되었습니다. 손님께 전달하세요.');
+      } catch (err) {
+        // 클립보드 권한이 없으면 prompt 로 보여주기 (사용자가 직접 복사)
+        prompt('아래 URL 을 복사해서 손님께 전달하세요:', url);
       }
     }
 
